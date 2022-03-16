@@ -17,7 +17,7 @@ func TestMany(t *testing.T) {
 }
 
 func TestBest(t *testing.T) {
-	words := NewWordleWords([]string{"aaaaa", "abbbb"})
+	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
 	score := NextGuess(words, words)
 	assert.NotZero(t, score)
 	print("testbest")
@@ -27,22 +27,22 @@ func WW(ins string) WordleWord {
 	return []rune(ins)
 }
 func TestMatching1(t *testing.T) {
-	words := NewWordleWords([]string{"aaaaa", "abbbb"})
+	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
 	wds := NewWordleMatcher(words)
 	assert := assert.New(t)
 	matching := wds.matching(WW("aazzz"), WW("ggrrr"))
-	assert.Equal(matching, NewWordleWords([]string{"aaaaa"}))
+	assert.Equal(matching, StringsToWordleWords([]string{"aaaaa"}))
 
 	matching = wds.matching(WW("bzzzz"), WW("yrrrr"))
-	assert.Equal(matching, NewWordleWords([]string{"abbbb"}))
+	assert.Equal(matching, StringsToWordleWords([]string{"abbbb"}))
 }
 
 func TestMatching2(t *testing.T) {
-	words := NewWordleWords([]string{"aaaaa", "abbbb"})
+	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
 	wds := NewWordleMatcher(words)
 	assert := assert.New(t)
 	matching := wds.matching(WW("bzzzz"), WW("yrrrr"))
-	assert.Equal(matching, NewWordleWords([]string{"abbbb"}))
+	assert.Equal(matching, StringsToWordleWords([]string{"abbbb"}))
 }
 
 func WordSort(ws []WordleWord) []string {
@@ -55,7 +55,7 @@ func WordSort(ws []WordleWord) []string {
 }
 
 func testMatching(t *testing.T, words []string, guess string, answer string, expected []string) {
-	wwords := NewWordleWords(words)
+	wwords := StringsToWordleWords(words)
 	wds := NewWordleMatcher(wwords)
 	matching := wds.matching(WW(guess), WW(answer))
 	assert := assert.New(t)
@@ -98,7 +98,7 @@ func TestYellowRed(t *testing.T) {
 
 func TestW1(t *testing.T) {
 	testMatching(t,
-		wordleDictionary,
+		WordleDictionary,
 		"aaxxd", "yyrry",
 		[]string{"drama"},
 	)
@@ -111,7 +111,118 @@ func TestFirst20(t *testing.T) {
 	assert.Greater(float32(5.0), float32(len(simulateWords)))
 }
 
-func BenchmarkGuessN(t *testing.B) {
+func TestFirst(t *testing.T) {
+	wordList := WordleDictionary[0:100]
+	// wordList := wordleDictionary
+	FirstGuess(wordList)
+}
+
+func TestFirst1(t *testing.T) {
+	wordList := WordleDictionary[0:800]
+	score, words := FirstGuess1(wordList)
+	print(score)
+	PrintWords(words)
+}
+
+func TestFirstWithInitialGuesses(t *testing.T) {
+	// wordList := wordleDictionary[0:800]
+	wordList := WordleDictionary[0:1100]
+	score, words := FirstGuessProvideInitialGuesses1(wordList, wordList)
+	print(score)
+	PrintWords(words)
+}
+
+/*
+func BenchmarkFirstN(t *testing.B) {
+	wordList := WordleDictionary[0:400]
+	FirstGuess(wordList)
+}
+*/
+
+func TestAgainstHeron400(t *testing.T) {
+	// tested and got cigar/4 for 0:400
+	wordList := WordleDictionary[0:400]
+	// bug: cigar, rebut, serve, ferry, heron
+	guess := "cigar"
+	worst := 4
+	solution := "heron"
+	simulateWords := Simulate(wordList, solution, guess)
+	if len(simulateWords) > worst {
+		println(len(simulateWords), string(solution))
+		worst = len(simulateWords)
+	}
+}
+func TestAgainstHeronArise(t *testing.T) {
+	wordList := WordleDictionary[0:]
+	guess := "arise"
+	worst := 4
+	solution := "heron"
+	simulateWords := Simulate(wordList, solution, guess)
+	if len(simulateWords) > worst {
+		println(len(simulateWords), string(solution))
+		worst = len(simulateWords)
+	}
+}
+func TestAgainstServeArise(t *testing.T) {
+	wordList := WordleDictionary[0:600] // contains arise
+	guess := "arise"
+	worst := 4
+	solution := "serve"
+	assertStringInSlice(t, guess, wordList)
+	assertStringInSlice(t, solution, wordList)
+	simulateWords := Simulate(wordList, solution, guess)
+	if len(simulateWords) > worst {
+		println(len(simulateWords), string(solution))
+		worst = len(simulateWords)
+	}
+}
+func assertStringInSlice(t *testing.T, tst string, wordList []string) {
+	for _, word := range wordList {
+		if word == tst {
+			return
+		}
+	}
+	t.Error("word not in list: " + tst)
+}
+func TestAriseAgainstAll(t *testing.T) {
+	// tested and got cigar/4 for 0:200
+	// tested and got cigar/4 for 0:400
+	wordList := WordleDictionary[0:600] // contains arise
+	// bug: cigar, rebut, serve, ferry, heron
+	guess := "arise"
+	assertStringInSlice(t, guess, wordList)
+	worst := 0
+	result := []string{}
+	for i, solution := range wordList {
+		simulateWords := Simulate(wordList, solution, guess)
+		assert.Equal(t, solution, string(simulateWords[len(simulateWords)-1]))
+		if i%10 == 0 {
+			println(i)
+		}
+		if len(simulateWords) == worst {
+			result = append(result, string(solution))
+		} else if len(simulateWords) > worst {
+			println(len(simulateWords), string(solution))
+			worst = len(simulateWords)
+			result = []string{string(solution)}
+		}
+	}
+	println(worst, result)
+}
+
+func TestPlayArise(t *testing.T) {
+	wordList := StringsToWordleWords(WordleDictionary[0:])
+	guessAnswers := []GuessAnswer{
+		{[]rune("arise"), []rune("yrrgg")},
+		{[]rune("cigar"), []rune("rrryr")},
+		{[]rune("panel"), []rune("ryryr")},
+	}
+	print(string(playWordle(wordList, guessAnswers)))
+	print("done")
+}
+
+/*
+func BenchmarkProof(t *testing.B) {
 	wordList := wordleDictionary[0:400]
 	_, ret := FirstGuess(wordList)
 	assert := assert.New(t)
@@ -119,4 +230,13 @@ func BenchmarkGuessN(t *testing.B) {
 		simulateWords := Simulate(wordList, solution, ret)
 		assert.Greater(float32(7.0), float32(len(simulateWords)))
 	}
+}
+
+*/
+
+func BenchmarkFirst1(t *testing.B) {
+	wordList := WordleDictionary[0:400]
+	score, words := FirstGuess1(wordList)
+	print(score)
+	PrintWords(words)
 }

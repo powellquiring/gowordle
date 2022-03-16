@@ -1,6 +1,9 @@
 package gowordle
 
 import (
+	"fmt"
+	"sort"
+
 	"github.com/bits-and-blooms/bitset"
 	mapset "github.com/deckarep/golang-set"
 )
@@ -19,7 +22,7 @@ func wwsToString(ww []WordleWord) string {
 	return ret
 }
 
-func NewWordleWords(words []string) []WordleWord {
+func StringsToWordleWords(words []string) []WordleWord {
 	ret := make([]WordleWord, 0, len(words))
 	for _, word := range words {
 		rune_word := []rune(word)
@@ -29,6 +32,20 @@ func NewWordleWords(words []string) []WordleWord {
 		ret = append(ret, rune_word)
 	}
 	return ret
+}
+
+func WordleWordsToStrings(words []WordleWord) []string {
+	ret := make([]string, 0, len(words))
+	for _, word := range words {
+		ret = append(ret, string(word))
+	}
+	return ret
+}
+
+func PrintWords(words []WordleWord) {
+	for _, word := range words {
+		println(string(word))
+	}
 }
 
 /*
@@ -87,6 +104,46 @@ type LetterMatch struct {
 }
 
 func MakeLetterMatch(guess, answer WordleWord) LetterMatch {
+	ret := LetterMatch{}
+	yellow_green := make(map[rune]int, 5)
+	ret.must_not = make(map[rune]int, 5)
+	ret.must = make(map[rune]int, 5)
+	for index, letter := range guess {
+		if answer[index] == 'g' {
+			yellow_green[letter] = yellow_green[letter] + 1
+		} else if answer[index] == 'y' {
+			yellow_green[letter] = yellow_green[letter] + 1
+			ret.must[letter] = ret.must[letter] + 1
+		} else { // r
+			ret.must_not[letter] = 0
+		}
+	}
+	// The number of red letters not found in the word depends on how many green/yellow
+	// aaabb/ryggg means that that all words with 3 or more a's can be eliminated
+	for red, _ := range ret.must_not {
+		ret.must_not[red] = yellow_green[red]
+	}
+
+	// The number of yellow letters that must be in the word, more is good
+	// aaabb/ygggg menas that there must be 3 a's in the word
+	for yellow, _ := range ret.must {
+		ret.must[yellow] = yellow_green[yellow] - 1 // 0 is 1 or more letter, 1 is 2 or more, ....
+	}
+	return ret
+}
+
+////////////////////////////////////////////////////
+type RuneCount struct {
+	l     rune
+	count int
+}
+type LetterMatch2 struct {
+	must     []RuneCount // only consider words with this many (or more) of the letter, 0 means 1 or more
+	must_not []RuneCount // eliminate all words with this many (or more) of the letter, 0 means 1 or more
+}
+
+//
+func MakeLetterMatch2(guess, answer WordleWord) LetterMatch {
 	ret := LetterMatch{}
 	yellow_green := make(map[rune]int, 5)
 	ret.must_not = make(map[rune]int, 5)
@@ -221,6 +278,11 @@ type GuessAnswer struct {
 	Answer WordleWord
 }
 
+type NG func(allWords, possibleAnswers []WordleWord) WordleWord
+
+var nextGuess NG = NextGuess
+var nextGuess1 NG = NextGuess1
+
 // play wordle against the computer providing the current board state
 // return the next best answer
 func playWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleWord {
@@ -230,7 +292,8 @@ func playWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleW
 		game := NewWordleMatcher(possibleAnswers)
 		possibleAnswers = game.matching([]rune(guessAnswer.Guess), []rune(guessAnswer.Answer))
 	}
-	ret := NextGuess(allWordleWords, possibleAnswers)
+	//ret := NextGuess(allWordleWords, possibleAnswers)
+	ret := nextGuess1(allWordleWords, possibleAnswers)
 	return ret
 }
 
@@ -245,11 +308,29 @@ func NextGuess(allWords, possibleAnswers []WordleWord) WordleWord {
 		return wordsAll[0]
 	}
 }
+func NextGuess1(allWords, possibleAnswers []WordleWord) WordleWord {
+	_, wordsPossible := BestGuess1(allWords, possibleAnswers, allWords, 1, len(possibleAnswers)+1)
+	return wordsPossible[0]
+}
 
 func FirstGuess(allWords []string) (float32, string) {
-	wws := NewWordleWords(allWords)
+	wws := StringsToWordleWords(allWords)
 	score, ret := BestGuess(wws, wws, 1)
 	return score, string(ret[0])
+}
+
+func FirstGuess1(allWords []string) (float32, []WordleWord) {
+	wws := StringsToWordleWords(allWords)
+	score, ret := BestGuess1(wws, wws, wws, 1, len(allWords))
+	return float32(score), ret
+}
+
+func FirstGuessProvideInitialGuesses1(initialGuesses_s, allWords_s []string) (float32, []WordleWord) {
+	allWords := StringsToWordleWords(allWords_s)
+	initialGuesses := StringsToWordleWords(initialGuesses_s)
+	// score, ret := BestGuess1(allWords, allWords, initialGuesses, 1, len(allwords))
+	score, ret := BestGuess1(allWords, allWords, initialGuesses, 1, 6)
+	return float32(score), ret
 }
 
 type WordFloat struct {
@@ -280,6 +361,7 @@ func BestGuess(allWords, possibleWords []WordleWord, depth int) (float32, []Word
 }
 
 func AnalyzeGuesses(guessAverageMatching WordFloatByFloat) (float32, []WordleWord) {
+	sort.Sort(guessAverageMatching)
 	/*
 		for i, guessAvg := range guessAverageMatching {
 			if i > 10 {
@@ -291,14 +373,25 @@ func AnalyzeGuesses(guessAverageMatching WordFloatByFloat) (float32, []WordleWor
 	return guessAverageMatching[0].flt, []WordleWord{guessAverageMatching[0].word}
 }
 
-/*
-func BestGuess1(allWords, possibleWords []WordleWord, depth int) (int, []WordleWord) {
+func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
+	if depth > 10 {
+		panic("BestGuess1 too deep")
+	}
+	if len(possibleWords) == 0 {
+		panic("possibleWords is empty")
+	}
+	if len(possibleWords) == 1 {
+		return depth, possibleWords
+	}
+	guessesWithBestScore := []WordleWord{}
 	game := NewWordleMatcher(possibleWords)
 	scores := make(map[int][]WordleWord)
-	for _, guess := range allWords {
-		fmt.Println(string(guess))
-		worst_score := 0
-		for _, solution := range possibleWords {
+	for guessNumber, guess := range initialGuesses {
+		worstScoreForGuess := 0
+		for solutionNumber, solution := range possibleWords {
+			if depth == 1 && ((solutionNumber % 10) == 0) {
+				println("guess/solution: ", guessNumber, "/", solutionNumber)
+			}
 			score := 0
 			if string(guess) == string(solution) {
 				score = depth
@@ -314,36 +407,60 @@ func BestGuess1(allWords, possibleWords []WordleWord, depth int) (int, []WordleW
 				} else if len(matching) == 0 {
 					fmt.Println("***bug")
 				} else {
-					score, _ = BestGuess(allWords, matching, depth+1)
+					if depth+2 >= bestScoreSoFar {
+						worstScoreForGuess = depth + 3 // could be equal, but not sure, add an extra (3 instead of 2)
+						break                          // short circuit, no need to look for even worse scores
+					}
+					score, _ = BestGuess1(allWords, matching, allWords, depth+1, bestScoreSoFar)
 				}
 			}
-			if score > worst_score {
-				worst_score = score
+			if score > worstScoreForGuess {
+				worstScoreForGuess = score
+			}
+			if worstScoreForGuess >= bestScoreSoFar {
+				// short circuit, no need to look for even worse scores
+				worstScoreForGuess++ // it may be the same, not worse, oh well
+				break
 			}
 		}
-		if _, ok := scores[worst_score]; !ok {
-			scores[worst_score] = make([]WordleWord, 0)
+		if _, ok := scores[worstScoreForGuess]; !ok {
+			scores[worstScoreForGuess] = make([]WordleWord, 0)
 		}
-		scores[worst_score] = append(scores[worst_score], guess)
+		if worstScoreForGuess < bestScoreSoFar {
+			bestScoreSoFar = worstScoreForGuess
+			guessesWithBestScore = []WordleWord{guess}
+			if depth == 1 {
+				println("Better guess/score:", string(guess), "/", bestScoreSoFar)
+			}
+		} else if worstScoreForGuess == bestScoreSoFar {
+			guessesWithBestScore = append(guessesWithBestScore, guess)
+		} else {
+			if depth == 1 {
+				println("no better guess/score", string(guess), "/", worstScoreForGuess)
+			}
+		}
+		scores[worstScoreForGuess] = append(scores[worstScoreForGuess], guess)
 	}
-	// Sort the keys
-	scoreKeys := make([]int, len(scores))
-	i := 0
-	for k, _ := range scores {
-		scoreKeys[i] = k
-		i++
-	}
-	sort.Ints(scoreKeys)
-	return scoreKeys[0], scores[scoreKeys[0]]
+	return bestScoreSoFar, guessesWithBestScore
+	/*
+		// Sort the keys
+		scoreKeys := make([]int, len(scores))
+		i := 0
+		for k, _ := range scores {
+			scoreKeys[i] = k
+			i++
+		}
+		sort.Ints(scoreKeys)
+		return scoreKeys[0], scores[scoreKeys[0]]
+	*/
 }
-*/
 
 //Simulate a game of wordle.
 //words_s - dictionary of words
 //solution - answer
 //first_guess - first guess
 func Simulate(words_s []string, solution_s string, first_guess_s string) []string {
-	words := NewWordleWords(words_s)
+	words := StringsToWordleWords(words_s)
 	solution := []rune(solution_s)
 	guess := []rune(first_guess_s)
 	guesses := []string{}
