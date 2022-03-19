@@ -59,6 +59,12 @@ type WordleMatcher struct {
 	count   map[rune][]*bitset.BitSet  // count['a'][0] set of words with 1 or more a, count['b'][1] words with 2 or more b
 }
 
+var bitSetNewCache map[uint][]*bitset.BitSet = make(map[uint][]*bitset.BitSet, 3200/32)
+
+func BitSetNew(bits uint) *bitset.BitSet {
+	return nil
+}
+
 // take a slice of strings and make wordle words
 func NewWordleMatcher(words []WordleWord) *WordleMatcher {
 	ret := WordleMatcher{}
@@ -131,50 +137,145 @@ func MakeLetterMatch(guess, answer WordleWord) LetterMatch {
 	}
 	return ret
 }
+func MakeLetterMatch2(guess, answer WordleWord) (must, mustNot []LetterCount) {
+	ret := MakeLetterMatch(guess, answer)
+	retMust := []LetterCount{}
+	retMustNot := []LetterCount{}
+	for letter, count := range ret.must {
+		retMust = append(retMust, LetterCount{letter, count})
+	}
+	for letter, count := range ret.must_not {
+		retMustNot = append(retMustNot, LetterCount{letter, count})
+	}
+	return retMust, retMustNot
+}
 
 ////////////////////////////////////////////////////
-type RuneCount struct {
-	l     rune
-	count int
-}
-type LetterMatch2 struct {
-	must     []RuneCount // only consider words with this many (or more) of the letter, 0 means 1 or more
-	must_not []RuneCount // eliminate all words with this many (or more) of the letter, 0 means 1 or more
+
+/*
+aaaab guess
+aazza answer
+ggyrr color
+aa greens
+
+pass 1 - green
+aaaab guess
+aazza answer
+ggrrr color - green correct, red is red or yellow
+zza notGreen in answer
+
+pass 2 - must
+for a in z,z,a
+  for i, g in guess
+		if color[i] == red
+			if a == g
+				color[i] = y
+				yellowCount[g]++
+				break; that green is used up
+			else
+			  reds[i] = 1
+
+aaaab guess
+aazza answer
+ggyrr color
+aa greens
+yellowCount [a]=1
+redCount [r]=1
+000zz reds
+
+pass 3
+
+[a,1] yellows
+[b,1] reds
+
+for yellow in yellows
+
+for y, yellow in yellows
+  for rest in yellows[y:]
+	  if y
+	for g, green in greens
+	  if yellow == green
+		  y
+
+
+
+
+
+
+green: letter, index
+yellow: letter, index
+red: letter, index
+
+yellows that must exist somewhere in the word indicate a rune count for this letter
+aaaab/ggyrr - only words with 3 or more 'a' need to be considered
+must; letter, count
+
+reds that must not exist in the word, this goes up for every yellow or green
+aaaaa/rrrrr - all words with 1 or more 'a' can be eliminated
+aaaab/ggyrr - all words with 4 or more 'a' and 1 or more b can be eliminated
+mustNot: letter count
+
+*/
+type Answer struct {
+	guess   WordleWord
+	colors  WordleWord
+	must    []LetterCount
+	mustNot []LetterCount
 }
 
-//
-func MakeLetterMatch2(guess, answer WordleWord) LetterMatch {
-	ret := LetterMatch{}
-	yellow_green := make(map[rune]int, 5)
-	ret.must_not = make(map[rune]int, 5)
-	ret.must = make(map[rune]int, 5)
-	for index, letter := range guess {
-		if answer[index] == 'g' {
-			yellow_green[letter] = yellow_green[letter] + 1
-		} else if answer[index] == 'y' {
-			yellow_green[letter] = yellow_green[letter] + 1
-			ret.must[letter] = ret.must[letter] + 1
-		} else { // r
-			ret.must_not[letter] = 0
+func WordleAnswer2(solution, guess WordleWord) Answer {
+	ret := Answer{
+		guess:   guess,
+		must:    []LetterCount{},
+		mustNot: []LetterCount{},
+		colors:  []rune{'r', 'r', 'r', 'r', 'r'},
+	}
+	solutionNotGreenCount := [26]int{}
+	guessYellowGreenCount := [26]int{}
+	must := [26]bool{}
+	mustNot := [26]bool{}
+	guessNotGreen := [26]int{}
+	for i, solutionLetter := range solution {
+		guessLetter := guess[i]
+		if solutionLetter == guessLetter {
+			ret.colors[i] = 'g'
+			guessYellowGreenCount[guessLetter-'a'] = guessYellowGreenCount[guessLetter-'a'] + 1
+		} else {
+			// answer[i] = 'r'
+			solutionNotGreenCount[solutionLetter-'a'] = solutionNotGreenCount[solutionLetter-'a'] + 1
+			guessNotGreen[guessLetter-'a'] = guessNotGreen[guessLetter-'a'] + 1
 		}
 	}
-
-	// The number of red letters not found in the word depends on how many green/yellow
-	// aaabb/ryggg means that that all words with 3 or more a's can be eliminated
-	for red, _ := range ret.must_not {
-		ret.must_not[red] = yellow_green[red]
+	// turn the red to yellow if in the word but not green
+	for i, guessLetter := range guess {
+		if ret.colors[i] == 'r' {
+			if solutionNotGreenCount[guessLetter-'a'] > 0 {
+				ret.colors[i] = 'y'
+				solutionNotGreenCount[guessLetter-'a'] = solutionNotGreenCount[guessLetter-'a'] - 1
+				guessYellowGreenCount[guessLetter-'a'] = guessYellowGreenCount[guessLetter-'a'] + 1
+			}
+		}
 	}
-
-	// The number of yellow letters that must be in the word, more is good
-	// aaabb/ygggg menas that there must be 3 a's in the word
-	for yellow, _ := range ret.must {
-		ret.must[yellow] = yellow_green[yellow] - 1 // 0 is 1 or more letter, 1 is 2 or more, ....
+	for i, guessLetter := range guess {
+		if ret.colors[i] == 'r' {
+			if !mustNot[guessLetter-'a'] {
+				ret.mustNot = append(ret.mustNot, LetterCount{guessLetter, guessYellowGreenCount[guessLetter-'a']})
+				mustNot[guessLetter-'a'] = true
+			}
+		} else if ret.colors[i] == 'y' {
+			if !must[guessLetter-'a'] {
+				// add one for each red letter
+				ret.must = append(ret.must, LetterCount{guessLetter, guessYellowGreenCount[guessLetter-'a'] - 1})
+				must[guessLetter-'a'] = true
+			}
+		}
 	}
 	return ret
 }
 
+// ORIGINAL
 // matching returns the set of matching words from the game's dictionary
-func (wd *WordleMatcher) matching(guess, answer WordleWord) []WordleWord {
+func (wd *WordleMatcher) matching0(guess, answer WordleWord) []WordleWord {
 	if len(guess) != 5 {
 		panic("not 5 letter word:" + string(guess))
 	}
@@ -205,6 +306,87 @@ func (wd *WordleMatcher) matching(guess, answer WordleWord) []WordleWord {
 
 	// red letters removes words that do not contain the required count of matching letters
 	for red, count := range letterMatch.must_not {
+		if counts, ok := wd.count[red]; ok {
+			if len(counts) > count {
+				set := counts[count]
+				ret = ret.Difference(set)
+			}
+		}
+	}
+
+	// if there are yellow remove the words with matching letters - those would have been green
+	// also remove any words that have the red letter in the same index
+	for l, color := range answer {
+		if color == 'y' {
+			// words may not exist with this letter
+			if wd.letters[l] != nil {
+				if set, ok := wd.letters[l][guess[l]]; ok {
+					ret = ret.Difference(set)
+				}
+			}
+		}
+		if color == 'r' {
+			// words may not exist with this letter
+			if wd.letters[l] != nil {
+				if set, ok := wd.letters[l][guess[l]]; ok {
+					ret = ret.Difference(set)
+				}
+			}
+		}
+	}
+	indices := make([]uint, ret.Count())
+	ret.NextSetMany(0, indices)
+	retSlice := make([]WordleWord, len(indices))
+	for i, index := range indices {
+		retSlice[i] = wd.words[index]
+	}
+	return retSlice
+}
+
+// new try
+// matching returns the set of matching words from the game's dictionary
+func (wd *WordleMatcher) matching(guess, answer WordleWord) []WordleWord {
+	must, must_not := MakeLetterMatch2(guess, answer)
+	return wd.matchingWorker(guess, answer, must, must_not)
+}
+
+func (wd *WordleMatcher) matching2(answer Answer) []WordleWord {
+	return wd.matchingWorker(answer.guess, answer.colors, answer.must, answer.mustNot)
+}
+
+func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not []LetterCount) []WordleWord {
+	if len(guess) != 5 {
+		panic("not 5 letter word:" + string(guess))
+	}
+	if len(answer) != 5 {
+		panic("not 5 letter word:" + string(answer))
+	}
+	ret := bitset.New(uint(len(wd.words))).Complement()
+	// if there are greens then the starting point only contains words with matching letter
+	for i, color := range answer {
+		if color == 'g' {
+			set := wd.letters[i][guess[i]]
+			ret = ret.Intersection(set)
+		}
+	}
+
+	// must letter is for yellow letters.  It indicates how many of these letters
+	// must be in the word
+	for _, letterCount := range must {
+		yellow := letterCount.letter
+		count := letterCount.count
+		if counts, ok := wd.count[yellow]; ok {
+			if len(counts) > count {
+				set := counts[count]
+				ret = ret.Intersection(set)
+			}
+		}
+	}
+
+	// red letters removes words that do not contain the required count of matching letters
+	for _, letterCount := range must_not {
+		red := letterCount.letter
+		count := letterCount.count
 		if counts, ok := wd.count[red]; ok {
 			if len(counts) > count {
 				set := counts[count]
@@ -343,6 +525,8 @@ func (wf WordFloatByFloat) Len() int           { return len(wf) }
 func (wf WordFloatByFloat) Swap(i, j int)      { wf[i], wf[j] = wf[j], wf[i] }
 func (wf WordFloatByFloat) Less(i, j int) bool { return wf[i].flt < wf[j].flt }
 
+var matching2 bool = true
+
 // return the next guess given all words as well as the subset of all words
 // which are the possible answers
 func BestGuess(allWords, possibleWords []WordleWord, depth int) (float32, []WordleWord) {
@@ -350,9 +534,14 @@ func BestGuess(allWords, possibleWords []WordleWord, depth int) (float32, []Word
 	guessAverageMatching := make(WordFloatByFloat, 0, len(possibleWords))
 	for _, guess := range allWords {
 		totalMatches := 0
+		var matching []WordleWord
 		for _, solution := range possibleWords {
-			answer := WordleAnswer(solution, guess)
-			matching := game.matching(guess, answer)
+			if matching2 {
+				matching = game.matching2(WordleAnswer2(solution, guess))
+			} else {
+				answer := WordleAnswer(solution, guess)
+				matching = game.matching(guess, answer)
+			}
 			totalMatches = totalMatches + len(matching)
 		}
 		guessAverageMatching = append(guessAverageMatching, WordFloat{guess, float32(totalMatches) / float32(len(possibleWords))})
@@ -396,8 +585,13 @@ func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int,
 			if string(guess) == string(solution) {
 				score = depth
 			} else {
-				answer := WordleAnswer(solution, guess)
-				matching := game.matching(guess, answer)
+				var matching []WordleWord
+				if matching2 {
+					matching = game.matching2(WordleAnswer2(solution, guess))
+				} else {
+					answer := WordleAnswer(solution, guess)
+					matching = game.matching(guess, answer)
+				}
 				if len(matching) == len(possibleWords) {
 					score = len(matching) + depth
 				} else if len(matching) == 2 {

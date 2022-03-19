@@ -118,7 +118,8 @@ func TestFirst(t *testing.T) {
 }
 
 func TestFirst1(t *testing.T) {
-	wordList := WordleDictionary[0:800]
+	//wordList := WordleDictionary[0:800]
+	wordList := WordleDictionary[0:200]
 	score, words := FirstGuess1(wordList)
 	print(score)
 	PrintWords(words)
@@ -126,7 +127,8 @@ func TestFirst1(t *testing.T) {
 
 func TestFirstWithInitialGuesses(t *testing.T) {
 	// wordList := wordleDictionary[0:800]
-	wordList := WordleDictionary[0:1100]
+	// wordList := WordleDictionary[0:1100]
+	wordList := WordleDictionary[0:10]
 	score, words := FirstGuessProvideInitialGuesses1(wordList, wordList)
 	print(score)
 	PrintWords(words)
@@ -153,7 +155,8 @@ func TestAgainstHeron400(t *testing.T) {
 	}
 }
 func TestAgainstHeronArise(t *testing.T) {
-	wordList := WordleDictionary[0:]
+	// wordList := WordleDictionary[0:]
+	wordList := WordleDictionary[0:200]
 	guess := "arise"
 	worst := 4
 	solution := "heron"
@@ -184,7 +187,9 @@ func assertStringInSlice(t *testing.T, tst string, wordList []string) {
 	}
 	t.Error("word not in list: " + tst)
 }
-func TestAriseAgainstAll(t *testing.T) {
+
+// takes too long
+func xTestAriseAgainstAll(t *testing.T) {
 	// tested and got cigar/4 for 0:200
 	// tested and got cigar/4 for 0:400
 	wordList := WordleDictionary[0:600] // contains arise
@@ -234,9 +239,36 @@ func BenchmarkProof(t *testing.B) {
 
 */
 
+var topGuesses = []string{
+	"raise",
+	"arise",
+	"irate",
+	"arose",
+	"alter",
+	"saner",
+	"later",
+	"snare",
+	"stare",
+	"slate",
+	"alert",
+	"crate",
+	"trace",
+	"stale",
+	"aisle",
+	"learn",
+	"leant",
+	"alone",
+	"least",
+	"crane",
+	"atone",
+	"trail",
+	"react",
+	"trade",
+}
+
 func BenchmarkFirst1(t *testing.B) {
 	wordList := WordleDictionary[0:400]
-	score, words := FirstGuess1(wordList)
+	score, words := FirstGuessProvideInitialGuesses1(topGuesses, wordList)
 	print(score)
 	PrintWords(words)
 }
