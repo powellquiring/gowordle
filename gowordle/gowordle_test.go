@@ -2,6 +2,7 @@ package gowordle
 
 import (
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/bits-and-blooms/bitset"
@@ -179,6 +180,19 @@ func TestAgainstServeArise(t *testing.T) {
 		worst = len(simulateWords)
 	}
 }
+func TestAgainstBrakeAtone(t *testing.T) {
+	wordList := WordleDictionary[0:1200]
+	guess := "atone"
+	worst := 4
+	solution := "break"
+	assertStringInSlice(t, guess, wordList)
+	assertStringInSlice(t, solution, wordList)
+	simulateWords := Simulate(wordList, solution, guess)
+	if len(simulateWords) > worst {
+		println(len(simulateWords), string(solution))
+		worst = len(simulateWords)
+	}
+}
 func assertStringInSlice(t *testing.T, tst string, wordList []string) {
 	for _, word := range wordList {
 		if word == tst {
@@ -188,19 +202,22 @@ func assertStringInSlice(t *testing.T, tst string, wordList []string) {
 	t.Error("word not in list: " + tst)
 }
 
-// takes too long
-func xTestAriseAgainstAll(t *testing.T) {
+// 1200 guess=atone - 5 brake, craze, frame, grave, crave, grape, brave, graze
+func TestAriseAgainstAll(t *testing.T) {
+	//func BenchmarkSimulate(t *testing.B) {
 	// tested and got cigar/4 for 0:200
 	// tested and got cigar/4 for 0:400
-	wordList := WordleDictionary[0:600] // contains arise
+	wordList := WordleDictionary[0:200]
+	// wordList := WordleDictionary[0:1200] // contains arise
+	// wordList := WordleDictionary[0:200]
 	// bug: cigar, rebut, serve, ferry, heron
-	guess := "arise"
-	assertStringInSlice(t, guess, wordList)
+	guess := "atone"
+	// not a test: assertStringInSlice(t, guess, wordList)
 	worst := 0
 	result := []string{}
 	for i, solution := range wordList {
 		simulateWords := Simulate(wordList, solution, guess)
-		assert.Equal(t, solution, string(simulateWords[len(simulateWords)-1]))
+		// not a test: assert.Equal(t, solution, string(simulateWords[len(simulateWords)-1]))
 		if i%10 == 0 {
 			println(i)
 		}
@@ -212,15 +229,46 @@ func xTestAriseAgainstAll(t *testing.T) {
 			result = []string{string(solution)}
 		}
 	}
-	println(worst, result)
+	println(worst, strings.Join(result, ", "))
+	PrintBetterGuesses()
+
+}
+
+type StringIntSlice []StringInt
+type StringInt struct {
+	s string
+	i int
+}
+
+func (sis *StringIntSlice) Len() int {
+	return len(*sis)
+}
+
+func (sis *StringIntSlice) Less(i, j int) bool {
+	return (*sis)[i].i < (*sis)[j].i
+}
+
+func (sis *StringIntSlice) Swap(i, j int) {
+	(*sis)[i], (*sis)[j] = (*sis)[j], (*sis)[i]
+}
+
+func PrintBetterGuesses() {
+	var bgs StringIntSlice = make([]StringInt, len(BetterGuesses))
+	for guess, times := range BetterGuesses {
+		bgs = append(bgs, StringInt{guess, times})
+	}
+	sort.Sort(&bgs)
+	for _, bg := range bgs {
+		println(bg.s, " ", bg.i)
+	}
 }
 
 func TestPlayArise(t *testing.T) {
 	wordList := StringsToWordleWords(WordleDictionary[0:])
 	guessAnswers := []GuessAnswer{
-		{[]rune("arise"), []rune("yrrgg")},
-		{[]rune("cigar"), []rune("rrryr")},
-		{[]rune("panel"), []rune("ryryr")},
+		{[]rune("raise"), []rune("grrry")},
+		{[]rune("rebut"), []rune("ggrrr")},
+		{[]rune("whelp"), []rune("yryrr")},
 	}
 	print(string(playWordle(wordList, guessAnswers)))
 	print("done")
@@ -240,34 +288,36 @@ func BenchmarkProof(t *testing.B) {
 */
 
 var topGuesses = []string{
-	"raise",
-	"arise",
-	"irate",
-	"arose",
-	"alter",
-	"saner",
-	"later",
-	"snare",
-	"stare",
-	"slate",
-	"alert",
-	"crate",
-	"trace",
-	"stale",
-	"aisle",
-	"learn",
-	"leant",
-	"alone",
-	"least",
-	"crane",
-	"atone",
-	"trail",
-	"react",
-	"trade",
+	"atone", // 20
+	"raise", // 0
+	"arise", // 1
+	"irate", // 2
+	"arose", // 3
+	"alter", // 4
+	"saner", // 5
+	"later", // 6
+	"snare", // 7
+	"stare", // 8
+	"slate", // 9
+	"alert", // 10
+	"crate", // 11
+	"trace", // 12
+	"stale", // 13
+	"aisle", // 14
+	"learn", // 15
+	"leant", // 16
+	"alone", // 17
+	"least", // 18
+	"crane", // 19
+	"trail", // 21
+	"react", // 22
+	"trade", // 23
 }
 
 func BenchmarkFirst1(t *testing.B) {
-	wordList := WordleDictionary[0:400]
+	wordList := WordleDictionary[0:1200]
+	// wordList := WordleDictionary
+	// wordList := WordleDictionary[0:800]
 	score, words := FirstGuessProvideInitialGuesses1(topGuesses, wordList)
 	print(score)
 	PrintWords(words)

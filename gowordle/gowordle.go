@@ -354,6 +354,26 @@ func (wd *WordleMatcher) matching2(answer Answer) []WordleWord {
 	return wd.matchingWorker(answer.guess, answer.colors, answer.must, answer.mustNot)
 }
 
+//var Compliment []uint64
+
+// [0] is BitSet for 1 bit.  Index off by 1
+var bitsetAllSetPreAllocated []*bitset.BitSet = make([]*bitset.BitSet, 0)
+
+// Length is 1..N
+func NewBitsetAllSet(length int) *bitset.BitSet {
+	if length < 1 {
+		panic("bad length")
+	}
+	for i := len(bitsetAllSetPreAllocated); i < length; i++ {
+		bitsetAllSetPreAllocated = append(bitsetAllSetPreAllocated, bitset.New(uint(i+1)).Complement())
+	}
+	set := make([]uint64, ((length-1)/64)+1)
+
+	copy(set, bitsetAllSetPreAllocated[length-1].Bytes())
+	ret := bitset.FromWithLength(uint(length), set)
+	return ret
+}
+
 func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not []LetterCount) []WordleWord {
 	if len(guess) != 5 {
 		panic("not 5 letter word:" + string(guess))
@@ -361,12 +381,12 @@ func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not
 	if len(answer) != 5 {
 		panic("not 5 letter word:" + string(answer))
 	}
-	ret := bitset.New(uint(len(wd.words))).Complement()
+	ret := NewBitsetAllSet(len(wd.words))
 	// if there are greens then the starting point only contains words with matching letter
 	for i, color := range answer {
 		if color == 'g' {
 			set := wd.letters[i][guess[i]]
-			ret = ret.Intersection(set)
+			ret.InPlaceIntersection(set)
 		}
 	}
 
@@ -378,7 +398,7 @@ func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not
 		if counts, ok := wd.count[yellow]; ok {
 			if len(counts) > count {
 				set := counts[count]
-				ret = ret.Intersection(set)
+				ret.InPlaceIntersection(set)
 			}
 		}
 	}
@@ -390,7 +410,7 @@ func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not
 		if counts, ok := wd.count[red]; ok {
 			if len(counts) > count {
 				set := counts[count]
-				ret = ret.Difference(set)
+				ret.InPlaceDifference(set)
 			}
 		}
 	}
@@ -402,7 +422,7 @@ func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not
 			// words may not exist with this letter
 			if wd.letters[l] != nil {
 				if set, ok := wd.letters[l][guess[l]]; ok {
-					ret = ret.Difference(set)
+					ret.InPlaceDifference(set)
 				}
 			}
 		}
@@ -410,7 +430,7 @@ func (wd *WordleMatcher) matchingWorker(guess, answer WordleWord, must, must_not
 			// words may not exist with this letter
 			if wd.letters[l] != nil {
 				if set, ok := wd.letters[l][guess[l]]; ok {
-					ret = ret.Difference(set)
+					ret.InPlaceDifference(set)
 				}
 			}
 		}
@@ -511,7 +531,7 @@ func FirstGuessProvideInitialGuesses1(initialGuesses_s, allWords_s []string) (fl
 	allWords := StringsToWordleWords(allWords_s)
 	initialGuesses := StringsToWordleWords(initialGuesses_s)
 	// score, ret := BestGuess1(allWords, allWords, initialGuesses, 1, len(allwords))
-	score, ret := BestGuess1(allWords, allWords, initialGuesses, 1, 6)
+	score, ret := BestGuess1(allWords, allWords, initialGuesses, 1, 10)
 	return float32(score), ret
 }
 
@@ -526,6 +546,8 @@ func (wf WordFloatByFloat) Swap(i, j int)      { wf[i], wf[j] = wf[j], wf[i] }
 func (wf WordFloatByFloat) Less(i, j int) bool { return wf[i].flt < wf[j].flt }
 
 var matching2 bool = true
+var Logging bool = false
+var BetterGuesses map[string]int = make(map[string]int)
 
 // return the next guess given all words as well as the subset of all words
 // which are the possible answers
@@ -575,11 +597,15 @@ func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int,
 	guessesWithBestScore := []WordleWord{}
 	game := NewWordleMatcher(possibleWords)
 	scores := make(map[int][]WordleWord)
-	for guessNumber, guess := range initialGuesses {
+	guessNumber := 0
+
+	guessScore := func(guess WordleWord) {
 		worstScoreForGuess := 0
 		for solutionNumber, solution := range possibleWords {
-			if depth == 1 && ((solutionNumber % 10) == 0) {
-				println("guess/solution: ", guessNumber, "/", solutionNumber)
+			if Logging {
+				if depth == 1 && ((solutionNumber % 10) == 0) {
+					println(string(guess), "guess/solution: ", guessNumber, "/", solutionNumber)
+				}
 			}
 			score := 0
 			if string(guess) == string(solution) {
@@ -595,6 +621,8 @@ func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int,
 				if len(matching) == len(possibleWords) {
 					score = len(matching) + depth
 				} else if len(matching) == 2 {
+					// assumeing any list of words with 2..5 could be solved in 2 guesses
+					// } else if len(matching) >= 2 && len(matching) <= 5 {
 					score = 2 + depth
 				} else if len(matching) == 1 {
 					score = 1 + depth
@@ -605,7 +633,7 @@ func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int,
 						worstScoreForGuess = depth + 3 // could be equal, but not sure, add an extra (3 instead of 2)
 						break                          // short circuit, no need to look for even worse scores
 					}
-					score, _ = BestGuess1(allWords, matching, allWords, depth+1, bestScoreSoFar)
+					score, _ = BestGuess1(allWords, matching, matching, depth+1, bestScoreSoFar)
 				}
 			}
 			if score > worstScoreForGuess {
@@ -625,15 +653,31 @@ func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int,
 			guessesWithBestScore = []WordleWord{guess}
 			if depth == 1 {
 				println("Better guess/score:", string(guess), "/", bestScoreSoFar)
+				BetterGuesses[string(guess)] = BetterGuesses[string(guess)] + 1
 			}
 		} else if worstScoreForGuess == bestScoreSoFar {
 			guessesWithBestScore = append(guessesWithBestScore, guess)
 		} else {
-			if depth == 1 {
-				println("no better guess/score", string(guess), "/", worstScoreForGuess)
+			if Logging {
+				if depth == 1 {
+					println("no better guess/score", string(guess), "/", worstScoreForGuess)
+				}
 			}
 		}
 		scores[worstScoreForGuess] = append(scores[worstScoreForGuess], guess)
+		guessNumber++
+	}
+
+	// use initial guesses first, then the rest of the words
+	initialGuessMap := make(map[string]bool, len(initialGuesses))
+	for _, guess := range initialGuesses {
+		guessScore(guess)
+		initialGuessMap[string(guess)] = true
+	}
+	for _, guess := range allWords {
+		if _, ok := initialGuessMap[string(guess)]; !ok {
+			guessScore(guess)
+		}
 	}
 	return bestScoreSoFar, guessesWithBestScore
 	/*
