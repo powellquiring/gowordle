@@ -1,6 +1,7 @@
 package gowordle
 
 import (
+	"math/rand"
 	"sort"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ func TestMany(t *testing.T) {
 
 func TestBest(t *testing.T) {
 	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
-	score := NextGuess(words, words)
+	score := NextGuess1(words, words)
 	assert.NotZero(t, score)
 	print("testbest")
 }
@@ -115,7 +116,7 @@ func TestFirst20(t *testing.T) {
 func TestFirst(t *testing.T) {
 	wordList := WordleDictionary[0:100]
 	// wordList := wordleDictionary
-	FirstGuess(wordList)
+	FirstGuess1(wordList)
 }
 
 func TestFirst1(t *testing.T) {
@@ -127,18 +128,19 @@ func TestFirst1(t *testing.T) {
 }
 
 func TestFirstWithInitialGuesses(t *testing.T) {
-	// wordList := wordleDictionary[0:800]
-	// wordList := WordleDictionary[0:1100]
-	wordList := WordleDictionary[0:10]
+	// wordList := WordleDictionary[0:800]
+	wordList := WordleDictionary[0:100]
 	score, words := FirstGuessProvideInitialGuesses1(wordList, wordList)
-	print(score)
+	println(score)
 	PrintWords(words)
+	println("hits:", HitCount)
+	println("miss:", MissCount)
 }
 
 /*
 func BenchmarkFirstN(t *testing.B) {
 	wordList := WordleDictionary[0:400]
-	FirstGuess(wordList)
+	FirstGuess1(wordList)
 }
 */
 
@@ -277,7 +279,7 @@ func TestPlayArise(t *testing.T) {
 /*
 func BenchmarkProof(t *testing.B) {
 	wordList := wordleDictionary[0:400]
-	_, ret := FirstGuess(wordList)
+	_, ret := FirstGuess1(wordList)
 	assert := assert.New(t)
 	for _, solution := range wordList {
 		simulateWords := Simulate(wordList, solution, ret)
@@ -315,10 +317,92 @@ var topGuesses = []string{
 }
 
 func BenchmarkFirst1(t *testing.B) {
-	wordList := WordleDictionary[0:1200]
-	// wordList := WordleDictionary
+	// wordList := WordleDictionary[0:1200]
+	// wordList := WordleDictionary[0:200]
+	wordList := WordleDictionary
 	// wordList := WordleDictionary[0:800]
 	score, words := FirstGuessProvideInitialGuesses1(topGuesses, wordList)
-	print(score)
+	println(score)
 	PrintWords(words)
+	println("hits:", HitCount)
+	println("miss:", MissCount)
+}
+
+var HitmissMap map[string]*Answer = make(map[string]*Answer, 10000)
+
+func testMap(solution, guess WordleWord) *Answer {
+	key := string(solution) + string(guess)
+	if ret, ok := HitmissMap[key]; ok {
+		HitCount++
+		return ret
+	}
+	ret := Answer{}
+	MissCount++
+	HitmissMap[key] = &ret
+	return &ret
+}
+
+var HitmissInt map[int]*Answer = make(map[int]*Answer, 10000)
+
+func testMapInt(solution, guess int) *Answer {
+	//key := string(solution) + string(guess)
+	key := solution*10_000 + guess
+	if ret, ok := HitmissInt[key]; ok {
+		HitCount++
+		return ret
+	}
+	ret := Answer{}
+	MissCount++
+	HitmissInt[key] = &ret
+	return &ret
+}
+
+var HitmissIndex []*Answer = make([]*Answer, (Choices*Choices)+Choices)
+
+func testMapIndex(solution, guess int) *Answer {
+	//key := string(solution) + string(guess)
+	key := solution*Choices + guess
+	if ret := HitmissIndex[key]; ret != nil {
+		HitCount++
+		return ret
+	}
+	ret := Answer{}
+	MissCount++
+	HitmissIndex[key] = &ret
+	return &ret
+}
+
+const L = 1_000_000_000
+const Choices = 250
+
+func BenchmarkMapStrings(t *testing.B) {
+	wordList := WordleDictionary
+	allWords := StringsToWordleWords(wordList)
+	l := L
+	choices := Choices
+	for i := 0; i < l; i++ {
+		testMap(allWords[rand.Intn(choices)], allWords[rand.Intn(choices)])
+	}
+	println("hits:", HitCount)
+	println("miss:", MissCount)
+}
+
+func BenchmarkMapInt(t *testing.B) {
+	l := L
+	choices := Choices
+	for i := 0; i < l; i++ {
+		testMapInt(rand.Intn(choices), rand.Intn(choices))
+	}
+	println("hits:", HitCount)
+	println("miss:", MissCount)
+}
+
+func BenchmarkMapIndex(t *testing.B) {
+	l := L
+	choices := Choices
+	for i := 0; i < l; i++ {
+		testMapIndex(rand.Intn(choices), rand.Intn(choices))
+	}
+	println("hits:", HitCount)
+	println("miss:", MissCount)
 }

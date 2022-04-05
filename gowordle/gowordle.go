@@ -2,7 +2,6 @@ package gowordle
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/bits-and-blooms/bitset"
 	mapset "github.com/deckarep/golang-set"
@@ -57,12 +56,6 @@ type WordleMatcher struct {
 	words   []WordleWord
 	letters [5]map[rune]*bitset.BitSet // letters[0]['a'] set of words with first letter 'a'
 	count   map[rune][]*bitset.BitSet  // count['a'][0] set of words with 1 or more a, count['b'][1] words with 2 or more b
-}
-
-var bitSetNewCache map[uint][]*bitset.BitSet = make(map[uint][]*bitset.BitSet, 3200/32)
-
-func BitSetNew(bits uint) *bitset.BitSet {
-	return nil
 }
 
 // take a slice of strings and make wordle words
@@ -150,72 +143,6 @@ func MakeLetterMatch2(guess, answer WordleWord) (must, mustNot []LetterCount) {
 	return retMust, retMustNot
 }
 
-////////////////////////////////////////////////////
-
-/*
-aaaab guess
-aazza answer
-ggyrr color
-aa greens
-
-pass 1 - green
-aaaab guess
-aazza answer
-ggrrr color - green correct, red is red or yellow
-zza notGreen in answer
-
-pass 2 - must
-for a in z,z,a
-  for i, g in guess
-		if color[i] == red
-			if a == g
-				color[i] = y
-				yellowCount[g]++
-				break; that green is used up
-			else
-			  reds[i] = 1
-
-aaaab guess
-aazza answer
-ggyrr color
-aa greens
-yellowCount [a]=1
-redCount [r]=1
-000zz reds
-
-pass 3
-
-[a,1] yellows
-[b,1] reds
-
-for yellow in yellows
-
-for y, yellow in yellows
-  for rest in yellows[y:]
-	  if y
-	for g, green in greens
-	  if yellow == green
-		  y
-
-
-
-
-
-
-green: letter, index
-yellow: letter, index
-red: letter, index
-
-yellows that must exist somewhere in the word indicate a rune count for this letter
-aaaab/ggyrr - only words with 3 or more 'a' need to be considered
-must; letter, count
-
-reds that must not exist in the word, this goes up for every yellow or green
-aaaaa/rrrrr - all words with 1 or more 'a' can be eliminated
-aaaab/ggyrr - all words with 4 or more 'a' and 1 or more b can be eliminated
-mustNot: letter count
-
-*/
 type Answer struct {
 	guess   WordleWord
 	colors  WordleWord
@@ -223,18 +150,29 @@ type Answer struct {
 	mustNot []LetterCount
 }
 
+var Hitmiss map[string]Answer = make(map[string]Answer, 10000)
+var HitCount int
+var MissCount int
+
 func WordleAnswer2(solution, guess WordleWord) Answer {
+	key := string(solution) + string(guess)
+	if ret, ok := Hitmiss[key]; ok {
+		HitCount++
+		return ret
+	}
+
 	ret := Answer{
-		guess:   guess,
-		must:    []LetterCount{},
-		mustNot: []LetterCount{},
+		guess: guess,
+		// must:    []LetterCount{},
+		// mustNot: []LetterCount{},
+		must:    make([]LetterCount, 0, 5),
+		mustNot: make([]LetterCount, 0, 5),
 		colors:  []rune{'r', 'r', 'r', 'r', 'r'},
 	}
 	solutionNotGreenCount := [26]int{}
 	guessYellowGreenCount := [26]int{}
 	must := [26]bool{}
 	mustNot := [26]bool{}
-	guessNotGreen := [26]int{}
 	for i, solutionLetter := range solution {
 		guessLetter := guess[i]
 		if solutionLetter == guessLetter {
@@ -243,7 +181,6 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 		} else {
 			// answer[i] = 'r'
 			solutionNotGreenCount[solutionLetter-'a'] = solutionNotGreenCount[solutionLetter-'a'] + 1
-			guessNotGreen[guessLetter-'a'] = guessNotGreen[guessLetter-'a'] + 1
 		}
 	}
 	// turn the red to yellow if in the word but not green
@@ -270,77 +207,9 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 			}
 		}
 	}
+	MissCount++
+	Hitmiss[key] = ret
 	return ret
-}
-
-// ORIGINAL
-// matching returns the set of matching words from the game's dictionary
-func (wd *WordleMatcher) matching0(guess, answer WordleWord) []WordleWord {
-	if len(guess) != 5 {
-		panic("not 5 letter word:" + string(guess))
-	}
-	if len(answer) != 5 {
-		panic("not 5 letter word:" + string(answer))
-	}
-	ret := bitset.New(uint(len(wd.words))).Complement()
-	// if there are greens then the starting point only contains words with matching letter
-	for i, color := range answer {
-		if color == 'g' {
-			set := wd.letters[i][guess[i]]
-			ret = ret.Intersection(set)
-		}
-	}
-
-	letterMatch := MakeLetterMatch(guess, answer)
-
-	// must letter is for yellow letters.  It indicates how many of these letters
-	// must be in the word
-	for yellow, count := range letterMatch.must {
-		if counts, ok := wd.count[yellow]; ok {
-			if len(counts) > count {
-				set := counts[count]
-				ret = ret.Intersection(set)
-			}
-		}
-	}
-
-	// red letters removes words that do not contain the required count of matching letters
-	for red, count := range letterMatch.must_not {
-		if counts, ok := wd.count[red]; ok {
-			if len(counts) > count {
-				set := counts[count]
-				ret = ret.Difference(set)
-			}
-		}
-	}
-
-	// if there are yellow remove the words with matching letters - those would have been green
-	// also remove any words that have the red letter in the same index
-	for l, color := range answer {
-		if color == 'y' {
-			// words may not exist with this letter
-			if wd.letters[l] != nil {
-				if set, ok := wd.letters[l][guess[l]]; ok {
-					ret = ret.Difference(set)
-				}
-			}
-		}
-		if color == 'r' {
-			// words may not exist with this letter
-			if wd.letters[l] != nil {
-				if set, ok := wd.letters[l][guess[l]]; ok {
-					ret = ret.Difference(set)
-				}
-			}
-		}
-	}
-	indices := make([]uint, ret.Count())
-	ret.NextSetMany(0, indices)
-	retSlice := make([]WordleWord, len(indices))
-	for i, index := range indices {
-		retSlice[i] = wd.words[index]
-	}
-	return retSlice
 }
 
 // new try
@@ -450,6 +319,11 @@ func (wd *WordleMatcher) matchingWords(guess, answer string) []string {
 
 // return the wordle answer for the quess given the solution
 func WordleAnswer(solution, guess WordleWord) WordleWord {
+	answer := WordleAnswer2(solution, guess)
+	return answer.colors
+}
+
+func WordleAnswerOrig(solution, guess WordleWord) WordleWord {
 	answer := make([]rune, 5)
 	solution_not_green := make(map[rune]int, 5)
 	for i, letter := range solution {
@@ -472,18 +346,10 @@ func WordleAnswer(solution, guess WordleWord) WordleWord {
 	return answer
 }
 
-const maxDepth = 4
-const spaces = "         "
-
 type GuessAnswer struct {
 	Guess  WordleWord
 	Answer WordleWord
 }
-
-type NG func(allWords, possibleAnswers []WordleWord) WordleWord
-
-var nextGuess NG = NextGuess
-var nextGuess1 NG = NextGuess1
 
 // play wordle against the computer providing the current board state
 // return the next best answer
@@ -495,30 +361,13 @@ func playWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleW
 		possibleAnswers = game.matching([]rune(guessAnswer.Guess), []rune(guessAnswer.Answer))
 	}
 	//ret := NextGuess(allWordleWords, possibleAnswers)
-	ret := nextGuess1(allWordleWords, possibleAnswers)
+	ret := NextGuess1(allWordleWords, possibleAnswers)
 	return ret
 }
 
-// return the next guess given all words as well as the subset of all words
-// which are the possible answers
-func NextGuess(allWords, possibleAnswers []WordleWord) WordleWord {
-	scoreAll, wordsAll := BestGuess(allWords, possibleAnswers, 1)
-	scorePossible, wordsPossible := BestGuess(possibleAnswers, possibleAnswers, 1)
-	if scorePossible <= scoreAll {
-		return wordsPossible[0]
-	} else {
-		return wordsAll[0]
-	}
-}
 func NextGuess1(allWords, possibleAnswers []WordleWord) WordleWord {
 	_, wordsPossible := BestGuess1(allWords, possibleAnswers, allWords, 1, len(possibleAnswers)+1)
 	return wordsPossible[0]
-}
-
-func FirstGuess(allWords []string) (float32, string) {
-	wws := StringsToWordleWords(allWords)
-	score, ret := BestGuess(wws, wws, 1)
-	return score, string(ret[0])
 }
 
 func FirstGuess1(allWords []string) (float32, []WordleWord) {
@@ -548,41 +397,6 @@ func (wf WordFloatByFloat) Less(i, j int) bool { return wf[i].flt < wf[j].flt }
 var matching2 bool = true
 var Logging bool = false
 var BetterGuesses map[string]int = make(map[string]int)
-
-// return the next guess given all words as well as the subset of all words
-// which are the possible answers
-func BestGuess(allWords, possibleWords []WordleWord, depth int) (float32, []WordleWord) {
-	game := NewWordleMatcher(possibleWords)
-	guessAverageMatching := make(WordFloatByFloat, 0, len(possibleWords))
-	for _, guess := range allWords {
-		totalMatches := 0
-		var matching []WordleWord
-		for _, solution := range possibleWords {
-			if matching2 {
-				matching = game.matching2(WordleAnswer2(solution, guess))
-			} else {
-				answer := WordleAnswer(solution, guess)
-				matching = game.matching(guess, answer)
-			}
-			totalMatches = totalMatches + len(matching)
-		}
-		guessAverageMatching = append(guessAverageMatching, WordFloat{guess, float32(totalMatches) / float32(len(possibleWords))})
-	}
-	return AnalyzeGuesses(guessAverageMatching)
-}
-
-func AnalyzeGuesses(guessAverageMatching WordFloatByFloat) (float32, []WordleWord) {
-	sort.Sort(guessAverageMatching)
-	/*
-		for i, guessAvg := range guessAverageMatching {
-			if i > 10 {
-				break
-			}
-			fmt.Printf("%f, %s\n", guessAvg.flt, string(guessAvg.word))
-		}
-	*/
-	return guessAverageMatching[0].flt, []WordleWord{guessAverageMatching[0].word}
-}
 
 func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
 	if depth > 10 {
