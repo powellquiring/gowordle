@@ -1,7 +1,7 @@
 package gowordle
 
 import (
-	"fmt"
+	"sort"
 
 	"github.com/bits-and-blooms/bitset"
 	mapset "github.com/deckarep/golang-set"
@@ -10,6 +10,63 @@ import (
 var s mapset.Set = nil
 
 type WordleWord []rune
+
+// WordleWordMap represents a map with ordered integer keys and values
+// that are a slice of WordleWord.
+type WordleWordMap struct {
+	keys   []int
+	values map[int][]WordleWord
+}
+
+// NewWordleWordMap creates and initializes a new WordleWordMap.
+func NewWordleWordMap() *WordleWordMap {
+	return &WordleWordMap{
+		keys:   make([]int, 0),
+		values: make(map[int][]WordleWord),
+	}
+}
+
+// Set adds or updates a key-value pair.
+// It appends a WordleWord to the slice associated with the given key.
+func (om *WordleWordMap) Set(key int, word WordleWord) {
+	if _, ok := om.values[key]; !ok {
+		// Key does not exist, so add it to the keys slice.
+		om.keys = append(om.keys, key)
+		om.values[key] = make([]WordleWord, 0)
+	}
+	// Append the new word to the existing slice.
+	om.values[key] = append(om.values[key], word)
+}
+
+// Get retrieves the slice of WordleWord for a given key.
+func (om *WordleWordMap) Get(key int) ([]WordleWord, bool) {
+	value, ok := om.values[key]
+	return value, ok
+}
+
+// Len returns the number of unique keys in the map.
+func (om *WordleWordMap) Len() int {
+	return len(om.keys)
+}
+
+// Keys returns the ordered slice of keys.
+func (om *WordleWordMap) Keys() []int {
+	return om.keys
+}
+
+// Iterate provides a way to loop through the key-value pairs in order.
+func (om *WordleWordMap) Iterate(f func(key int, values []WordleWord)) {
+	for _, key := range om.keys {
+		if values, ok := om.values[key]; ok {
+			f(key, values)
+		}
+	}
+}
+
+// SortKeys sorts the keys in ascending order.
+func (om *WordleWordMap) SortKeys() {
+	sort.Ints(om.keys)
+}
 
 func wwsToString(ww []WordleWord) string {
 	ret := ""
@@ -353,7 +410,7 @@ type GuessAnswer struct {
 
 // play wordle against the computer providing the current board state
 // return the next best answer
-func playWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleWord {
+func PlayWorldReturnPossible(allWordleWords []WordleWord, guessAnswers []GuessAnswer) (WordleWord, []WordleWord) {
 	possibleAnswers := allWordleWords
 
 	for _, guessAnswer := range guessAnswers {
@@ -362,11 +419,16 @@ func playWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleW
 	}
 	//ret := NextGuess(allWordleWords, possibleAnswers)
 	ret := NextGuess1(allWordleWords, possibleAnswers)
+	return ret, possibleAnswers
+}
+
+func PlayWordle(allWordleWords []WordleWord, guessAnswers []GuessAnswer) WordleWord {
+	ret, _ := PlayWorldReturnPossible(allWordleWords, guessAnswers)
 	return ret
 }
 
 func NextGuess1(allWords, possibleAnswers []WordleWord) WordleWord {
-	_, wordsPossible := BestGuess1(allWords, possibleAnswers, allWords, 1, len(possibleAnswers)+1)
+	_, wordsPossible := BestGuess1(allWords, possibleAnswers, possibleAnswers, 1, len(possibleAnswers)+1)
 	return wordsPossible[0]
 }
 
@@ -394,123 +456,72 @@ func (wf WordFloatByFloat) Len() int           { return len(wf) }
 func (wf WordFloatByFloat) Swap(i, j int)      { wf[i], wf[j] = wf[j], wf[i] }
 func (wf WordFloatByFloat) Less(i, j int) bool { return wf[i].flt < wf[j].flt }
 
+var RECURSIVE bool = true
 var matching2 bool = true
 var Logging bool = false
 var BetterGuesses map[string]int = make(map[string]int)
 
-func BestGuess1(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
-	if depth > 10 {
-		panic("BestGuess1 too deep")
-	}
+func ScoreAlgorithmTotalMatches1Level(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
+	wwm := ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses, depth, bestScoreSoFar)
+	keys := wwm.Keys()
+	values, _ := wwm.Get(keys[0])
+	return keys[0], values
+}
+func ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) *WordleWordMap {
 	if len(possibleWords) == 0 {
 		panic("possibleWords is empty")
 	}
 	if len(possibleWords) == 1 {
-		return depth, possibleWords
+		ret := NewWordleWordMap()
+		ret.Set(1, possibleWords[0])
+		return ret
 	}
-	guessesWithBestScore := []WordleWord{}
 	game := NewWordleMatcher(possibleWords)
-	scores := make(map[int][]WordleWord)
-	guessNumber := 0
 
-	guessScore := func(guess WordleWord) {
-		worstScoreForGuess := 0
-		for solutionNumber, solution := range possibleWords {
-			if Logging {
-				if depth == 1 && ((solutionNumber % 10) == 0) {
-					println(string(guess), "guess/solution: ", guessNumber, "/", solutionNumber)
-				}
-			}
-			score := 0
-			if string(guess) == string(solution) {
-				score = depth
+	// total number of words
+	guessScore := func(guess WordleWord) int {
+		score := 0
+		for _, solution := range possibleWords {
+			var matching []WordleWord
+			if matching2 {
+				matching = game.matching2(WordleAnswer2(solution, guess))
 			} else {
-				var matching []WordleWord
-				if matching2 {
-					matching = game.matching2(WordleAnswer2(solution, guess))
-				} else {
-					answer := WordleAnswer(solution, guess)
-					matching = game.matching(guess, answer)
-				}
-				if len(matching) == len(possibleWords) {
-					score = len(matching) + depth
-				} else if len(matching) == 2 {
-					// assumeing any list of words with 2..5 could be solved in 2 guesses
-					// } else if len(matching) >= 2 && len(matching) <= 5 {
-					score = 2 + depth
-				} else if len(matching) == 1 {
-					score = 1 + depth
-				} else if len(matching) == 0 {
-					fmt.Println("***bug")
-				} else {
-					if depth+2 >= bestScoreSoFar {
-						worstScoreForGuess = depth + 3 // could be equal, but not sure, add an extra (3 instead of 2)
-						break                          // short circuit, no need to look for even worse scores
-					}
-					score, _ = BestGuess1(allWords, matching, matching, depth+1, bestScoreSoFar)
-				}
+				answer := WordleAnswer(solution, guess)
+				matching = game.matching(guess, answer)
 			}
-			if score > worstScoreForGuess {
-				worstScoreForGuess = score
-			}
-			if worstScoreForGuess >= bestScoreSoFar {
-				// short circuit, no need to look for even worse scores
-				worstScoreForGuess++ // it may be the same, not worse, oh well
-				break
-			}
+			score += len(matching)
 		}
-		if _, ok := scores[worstScoreForGuess]; !ok {
-			scores[worstScoreForGuess] = make([]WordleWord, 0)
-		}
-		if worstScoreForGuess < bestScoreSoFar {
-			bestScoreSoFar = worstScoreForGuess
-			guessesWithBestScore = []WordleWord{guess}
-			if depth == 1 {
-				println("Better guess/score:", string(guess), "/", bestScoreSoFar)
-				BetterGuesses[string(guess)] = BetterGuesses[string(guess)] + 1
-			}
-		} else if worstScoreForGuess == bestScoreSoFar {
-			guessesWithBestScore = append(guessesWithBestScore, guess)
-		} else {
-			if Logging {
-				if depth == 1 {
-					println("no better guess/score", string(guess), "/", worstScoreForGuess)
-				}
-			}
-		}
-		scores[worstScoreForGuess] = append(scores[worstScoreForGuess], guess)
-		guessNumber++
+		return score
 	}
 
-	// use initial guesses first, then the rest of the words
+	// use possible words first - then rest of the words
 	initialGuessMap := make(map[string]bool, len(initialGuesses))
+	orderedGuesses := make([]WordleWord, len(initialGuesses))
+	copy(orderedGuesses, initialGuesses)
+
 	for _, guess := range initialGuesses {
-		guessScore(guess)
 		initialGuessMap[string(guess)] = true
 	}
 	for _, guess := range allWords {
 		if _, ok := initialGuessMap[string(guess)]; !ok {
-			guessScore(guess)
+			orderedGuesses = append(orderedGuesses, guess)
 		}
 	}
-	return bestScoreSoFar, guessesWithBestScore
-	/*
-		// Sort the keys
-		scoreKeys := make([]int, len(scores))
-		i := 0
-		for k, _ := range scores {
-			scoreKeys[i] = k
-			i++
-		}
-		sort.Ints(scoreKeys)
-		return scoreKeys[0], scores[scoreKeys[0]]
-	*/
+	ret := NewWordleWordMap()
+	for _, guess := range orderedGuesses {
+		score := guessScore(guess)
+		ret.Set(score, guess)
+	}
+	ret.SortKeys()
+	return ret
 }
 
-//Simulate a game of wordle.
-//words_s - dictionary of words
-//solution - answer
-//first_guess - first guess
+var BestGuess1 func([]WordleWord, []WordleWord, []WordleWord, int, int) (int, []WordleWord) = ScoreAlgorithmTotalMatches1Level
+
+// Simulate a game of wordle.
+// words_s - dictionary of words
+// solution - answer
+// first_guess - first guess
 func Simulate(words_s []string, solution_s string, first_guess_s string) []string {
 	words := StringsToWordleWords(words_s)
 	solution := []rune(solution_s)
@@ -524,7 +535,7 @@ func Simulate(words_s []string, solution_s string, first_guess_s string) []strin
 			return guesses
 		}
 		gas = append(gas, GuessAnswer{guess, WordleAnswer(solution, guess)})
-		guess = playWordle(words, gas)
+		guess = PlayWordle(words, gas)
 	}
 	panic("unexpected Simulate end")
 }

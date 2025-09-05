@@ -182,6 +182,17 @@ func TestAgainstServeArise(t *testing.T) {
 		worst = len(simulateWords)
 	}
 }
+
+// Real game against online version of Wordl
+func TestRealAriseToPetal(t *testing.T) {
+	wordList := WordleDictionary[0:]
+	guess := "arise"
+	solution := "petal"
+	assertStringInSlice(t, guess, wordList)
+	assertStringInSlice(t, solution, wordList)
+	simulateWords := Simulate(wordList, solution, guess)
+	assert.Equal(t, 3, len(simulateWords))
+}
 func TestAgainstBrakeAtone(t *testing.T) {
 	wordList := WordleDictionary[0:1200]
 	guess := "atone"
@@ -268,12 +279,17 @@ func PrintBetterGuesses() {
 func TestPlayArise(t *testing.T) {
 	wordList := StringsToWordleWords(WordleDictionary[0:])
 	guessAnswers := []GuessAnswer{
-		{[]rune("raise"), []rune("grrry")},
-		{[]rune("rebut"), []rune("ggrrr")},
-		{[]rune("whelp"), []rune("yryrr")},
+		{[]rune("arise"), []rune("yrrry")},
+		{[]rune("metal"), []rune("rgggg")},
 	}
-	print(string(playWordle(wordList, guessAnswers)))
+	print(string(PlayWordle(wordList, guessAnswers)))
 	print("done")
+}
+func TestDifficult(t *testing.T) {
+	// ./wdl play raise rryrr hotly yryrr
+	// twang: night might ninth wight width fight tight fifth
+	// ./wdl play raise rryrr hotly yryrr twang yrrry
+	// might: might fight
 }
 
 /*
