@@ -1,6 +1,7 @@
 package gowordle
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/bits-and-blooms/bitset"
@@ -100,7 +101,7 @@ func WordleWordsToStrings(words []WordleWord) []string {
 
 func PrintWords(words []WordleWord) {
 	for _, word := range words {
-		println(string(word))
+		fmt.Println(string(word))
 	}
 }
 
@@ -202,7 +203,7 @@ func MakeLetterMatch2(guess, answer WordleWord) (must, mustNot []LetterCount) {
 
 type Answer struct {
 	guess   WordleWord
-	colors  WordleWord
+	Colors  WordleWord
 	must    []LetterCount
 	mustNot []LetterCount
 }
@@ -224,7 +225,7 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 		// mustNot: []LetterCount{},
 		must:    make([]LetterCount, 0, 5),
 		mustNot: make([]LetterCount, 0, 5),
-		colors:  []rune{'r', 'r', 'r', 'r', 'r'},
+		Colors:  []rune{'r', 'r', 'r', 'r', 'r'},
 	}
 	solutionNotGreenCount := [26]int{}
 	guessYellowGreenCount := [26]int{}
@@ -233,7 +234,7 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 	for i, solutionLetter := range solution {
 		guessLetter := guess[i]
 		if solutionLetter == guessLetter {
-			ret.colors[i] = 'g'
+			ret.Colors[i] = 'g'
 			guessYellowGreenCount[guessLetter-'a'] = guessYellowGreenCount[guessLetter-'a'] + 1
 		} else {
 			// answer[i] = 'r'
@@ -242,21 +243,21 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 	}
 	// turn the red to yellow if in the word but not green
 	for i, guessLetter := range guess {
-		if ret.colors[i] == 'r' {
+		if ret.Colors[i] == 'r' {
 			if solutionNotGreenCount[guessLetter-'a'] > 0 {
-				ret.colors[i] = 'y'
+				ret.Colors[i] = 'y'
 				solutionNotGreenCount[guessLetter-'a'] = solutionNotGreenCount[guessLetter-'a'] - 1
 				guessYellowGreenCount[guessLetter-'a'] = guessYellowGreenCount[guessLetter-'a'] + 1
 			}
 		}
 	}
 	for i, guessLetter := range guess {
-		if ret.colors[i] == 'r' {
+		if ret.Colors[i] == 'r' {
 			if !mustNot[guessLetter-'a'] {
 				ret.mustNot = append(ret.mustNot, LetterCount{guessLetter, guessYellowGreenCount[guessLetter-'a']})
 				mustNot[guessLetter-'a'] = true
 			}
-		} else if ret.colors[i] == 'y' {
+		} else if ret.Colors[i] == 'y' {
 			if !must[guessLetter-'a'] {
 				// add one for each red letter
 				ret.must = append(ret.must, LetterCount{guessLetter, guessYellowGreenCount[guessLetter-'a'] - 1})
@@ -270,14 +271,14 @@ func WordleAnswer2(solution, guess WordleWord) Answer {
 }
 
 // new try
-// matching returns the set of matching words from the game's dictionary
-func (wd *WordleMatcher) matching(guess, answer WordleWord) []WordleWord {
+// Matching returns the set of Matching words from the game's dictionary
+func (wd *WordleMatcher) Matching(guess, answer WordleWord) []WordleWord {
 	must, must_not := MakeLetterMatch2(guess, answer)
 	return wd.matchingWorker(guess, answer, must, must_not)
 }
 
-func (wd *WordleMatcher) matching2(answer Answer) []WordleWord {
-	return wd.matchingWorker(answer.guess, answer.colors, answer.must, answer.mustNot)
+func (wd *WordleMatcher) Matching2(answer Answer) []WordleWord {
+	return wd.matchingWorker(answer.guess, answer.Colors, answer.must, answer.mustNot)
 }
 
 //var Compliment []uint64
@@ -377,7 +378,7 @@ func (wd *WordleMatcher) matchingWords(guess, answer string) []string {
 // return the wordle answer for the quess given the solution
 func WordleAnswer(solution, guess WordleWord) WordleWord {
 	answer := WordleAnswer2(solution, guess)
-	return answer.colors
+	return answer.Colors
 }
 
 func WordleAnswerOrig(solution, guess WordleWord) WordleWord {
@@ -415,7 +416,7 @@ func PlayWorldReturnPossible(allWordleWords []WordleWord, guessAnswers []GuessAn
 
 	for _, guessAnswer := range guessAnswers {
 		game := NewWordleMatcher(possibleAnswers)
-		possibleAnswers = game.matching([]rune(guessAnswer.Guess), []rune(guessAnswer.Answer))
+		possibleAnswers = game.Matching([]rune(guessAnswer.Guess), []rune(guessAnswer.Answer))
 	}
 	//ret := NextGuess(allWordleWords, possibleAnswers)
 	ret := NextGuess1(allWordleWords, possibleAnswers)
@@ -456,10 +457,174 @@ func (wf WordFloatByFloat) Len() int           { return len(wf) }
 func (wf WordFloatByFloat) Swap(i, j int)      { wf[i], wf[j] = wf[j], wf[i] }
 func (wf WordFloatByFloat) Less(i, j int) bool { return wf[i].flt < wf[j].flt }
 
+// configurable from command line
 var RECURSIVE bool = true
+
 var matching2 bool = true
 var Logging bool = false
 var BetterGuesses map[string]int = make(map[string]int)
+
+// find best next guess, return the low score and the slice of words that have that score
+// The score will be the average number of guesses it will take to solve if one the best guesses is used
+func ScoreAlgorithmRecursive(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
+	const INIFINITY_SCORE = 1000000
+	if depth > 6 {
+		// this is the path for a bad guess, eject
+		return INIFINITY_SCORE, []WordleWord{WordleWord("BADWD")}
+	}
+	if len(possibleWords) == 0 {
+		panic("possibleWords is empty")
+	}
+	if len(possibleWords) == 1 {
+		return 100, possibleWords // just guess it
+	}
+	if len(possibleWords) == 2 {
+		// if there are two words choose either of the words and the guesses will be 1 if the right guess and 2 if the wrong guess
+		return 150, possibleWords
+	}
+	// Using the possible words the best guess is the matching one for one solution and 2 for the rest of the solutions.
+	game := NewWordleMatcher(possibleWords)
+	bestScore := 1000
+	var bestGuess []WordleWord
+	possibleWordsSet := make(map[string]bool)
+	for _, guess := range possibleWords {
+		score := 0 // running average
+		for count, solution := range possibleWords {
+			matching := game.Matching2(WordleAnswer2(solution, guess))
+			subscore, _ := ScoreAlgorithmRecursive(allWords, matching, matching, depth+1, bestScoreSoFar)
+			if !((len(matching) == 1) && (string(matching[0]) == string(guess))) {
+				subscore += 100 // if the guess is the solution then the subscore will be 100, otherwise it will be the current guess pluss the recursive guess
+			}
+			score = score + ((subscore - score) / (count + 1))
+		}
+		// all but one of the guesses is incorrect (hence the -1) then each of the second guesses takes only 1 guess
+		if score <= (((len(possibleWords)-1)+len(possibleWords))*100)/len(possibleWords) {
+			// found this guess compared to all the possible words returns the correct answer (1) or narrows down to a single answer for the correct guess
+			return score, []WordleWord{guess}
+		}
+		possibleWordsSet[string(guess)] = true
+		// although not best possible it could still be the best so far
+		if score < bestScore {
+			bestScore = score
+			bestGuess = []WordleWord{guess}
+		} else if score == bestScore {
+			bestGuess = append(bestGuess, guess)
+		}
+	}
+
+	// the best that can be done by using a non possible word is finding a guess that narrows it down to 1 in all cases, thus taking 2 guesses total
+	// so if that has already been achieved use the best guess
+	if bestScore <= 200 {
+		return bestScore, bestGuess
+	}
+
+	// did not find an optimal answer
+	for _, guess := range allWords {
+		if _, ok := possibleWordsSet[string(guess)]; ok {
+			// already tried this guess
+			continue
+		}
+		score := 0 // running average
+		for count, solution := range possibleWords {
+			matching := game.Matching2(WordleAnswer2(solution, guess))
+			if len(matching) == len(possibleWords) {
+				// not narrowing it down any this solution so it is a bad guess, go to next guess
+				score = INIFINITY_SCORE
+				break
+			}
+			subscore, _ := ScoreAlgorithmRecursive(allWords, matching, matching, depth+1, bestScoreSoFar)
+			subscore += 100 // current score plus the recursive score
+			score = score + ((subscore - score) / (count + 1))
+
+			// 200 is the best for the remaining words, if the current average plus best possible result for the remaining words
+			// is alread over that bail
+			bestPossibleScore := ((score * (count + 1)) + (200 * (len(possibleWords) - (count + 1)))) / len(possibleWords)
+			if bestPossibleScore > bestScore {
+				score = bestPossibleScore
+				break
+			}
+		}
+
+		if score < bestScore {
+			bestScore = score
+			bestGuess = []WordleWord{guess}
+		} else if score == bestScore {
+			bestGuess = append(bestGuess, guess)
+		}
+	}
+	return bestScore, bestGuess
+}
+
+/******
+	// Did not get the optimal score.  The best possible to 2 * len(possibleWords)
+	if bestScore == 2 * len(possibleWords) {
+		return bestScore, bestGuess
+	}
+
+	// Painfull - need to go through all possible wors
+
+		if RECURSIVE && depth < 2 {
+			// get a more accurage score of this guess by looking at all the possible next guesses
+			for _, solutionInner := range matching {
+				// for each possible solution look at the produced subset of words
+				// and guess again.
+				gameInner := NewWordleMatcher(matching)
+				matchingInner := gameInner.matching2(WordleAnswer2(solutionInner, guess))
+				scores := ScoreAlgorithmTotalMatches1LevelAll(allWords, matchingInner, matchingInner, depth+1, 0)
+				score += scores.Keys()[0]
+			}
+		} else {
+			score += len(matching)
+		}
+	}
+	return score
+	for _, guess := range possibleWords {
+		score := 0
+		for _, solution := range possibleWords {
+			answer := WordleAnswer2(solution, guess)
+			matching := game.matching2(answer)
+			if len(matching) == 1 {
+				score += 1
+			} else {
+				score += 2
+			}
+		}
+
+	}
+
+				gameInner := NewWordleMatcher(matching)
+				matchingInner := gameInner.matching2(WordleAnswer2(solutionInner, guess))
+				scores := ScoreAlgorithmTotalMatches1LevelAll(allWords, matchingInner, matchingInner, depth+1, 0)
+				score += scores.Keys()[0]
+
+
+
+	// use possible words first - then rest of the words
+	initialGuessMap := make(map[string]bool, len(initialGuesses))
+	orderedGuesses := make([]WordleWord, len(initialGuesses))
+	copy(orderedGuesses, initialGuesses)
+
+	for _, guess := range initialGuesses {
+		initialGuessMap[string(guess)] = true
+	}
+	for _, guess := range allWords {
+		if _, ok := initialGuessMap[string(guess)]; !ok {
+			orderedGuesses = append(orderedGuesses, guess)
+		}
+	}
+	ret := NewWordleWordMap()
+	for _, guess := range orderedGuesses {
+		score := GuessScore(guess, possibleWords, allWords, depth)
+		ret.Set(score, guess)
+	}
+	ret.SortKeys()
+	return ret
+	keys := wwm.Keys()
+	values, _ := wwm.Get(keys[0])
+	return keys[0], values
+}
+// first try
+***/
 
 func ScoreAlgorithmTotalMatches1Level(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) (int, []WordleWord) {
 	wwm := ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses, depth, bestScoreSoFar)
@@ -467,6 +632,31 @@ func ScoreAlgorithmTotalMatches1Level(allWords, possibleWords, initialGuesses []
 	values, _ := wwm.Get(keys[0])
 	return keys[0], values
 }
+
+// total number of words
+func GuessScore(guess WordleWord, possibleWords []WordleWord, allWords []WordleWord, depth int) int {
+	game := NewWordleMatcher(possibleWords)
+	score := 0
+	for _, solution := range possibleWords {
+		matching := game.Matching2(WordleAnswer2(solution, guess))
+		if RECURSIVE && depth < 2 {
+			// get a more accurage score of this guess by looking at all the possible next guesses
+			for _, solutionInner := range matching {
+				// for each possible solution look at the produced subset of words
+				// and guess again.
+				gameInner := NewWordleMatcher(matching)
+				matchingInner := gameInner.Matching2(WordleAnswer2(solutionInner, guess))
+				scores := ScoreAlgorithmTotalMatches1LevelAll(allWords, matchingInner, matchingInner, depth+1, 0)
+				score += scores.Keys()[0]
+			}
+		} else {
+			score += len(matching)
+		}
+	}
+	return score
+}
+
+// try all the guesses and return a map of score to guess.
 func ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses []WordleWord, depth int, bestScoreSoFar int) *WordleWordMap {
 	if len(possibleWords) == 0 {
 		panic("possibleWords is empty")
@@ -475,23 +665,6 @@ func ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses
 		ret := NewWordleWordMap()
 		ret.Set(1, possibleWords[0])
 		return ret
-	}
-	game := NewWordleMatcher(possibleWords)
-
-	// total number of words
-	guessScore := func(guess WordleWord) int {
-		score := 0
-		for _, solution := range possibleWords {
-			var matching []WordleWord
-			if matching2 {
-				matching = game.matching2(WordleAnswer2(solution, guess))
-			} else {
-				answer := WordleAnswer(solution, guess)
-				matching = game.matching(guess, answer)
-			}
-			score += len(matching)
-		}
-		return score
 	}
 
 	// use possible words first - then rest of the words
@@ -509,7 +682,7 @@ func ScoreAlgorithmTotalMatches1LevelAll(allWords, possibleWords, initialGuesses
 	}
 	ret := NewWordleWordMap()
 	for _, guess := range orderedGuesses {
-		score := guessScore(guess)
+		score := GuessScore(guess, possibleWords, allWords, depth)
 		ret.Set(score, guess)
 	}
 	ret.SortKeys()
@@ -538,4 +711,56 @@ func Simulate(words_s []string, solution_s string, first_guess_s string) []strin
 		guess = PlayWordle(words, gas)
 	}
 	panic("unexpected Simulate end")
+}
+
+type SolutionsAnswers struct {
+	Solutions    []string
+	AnswerColors []string
+}
+
+// for the given guess return a map key = matching possible solutions, value = slice of Solutions and answerColors
+func UniqueGuessResults(wordListStrings []string, guess string) map[string]SolutionsAnswers {
+	guessWW := []rune(guess)
+	wordList := StringsToWordleWords(wordListStrings)
+	game := NewWordleMatcher(wordList)
+	sortedSolutions := make(map[string]SolutionsAnswers)
+	for _, solution := range wordList {
+		answer := WordleAnswer2(solution, guessWW)
+		possibleSolutions := game.Matching(guessWW, answer.Colors)
+		sort.Slice(possibleSolutions, func(i, j int) bool {
+			return string(possibleSolutions[i]) < string(possibleSolutions[j])
+		})
+		allSolutions := ""
+		for _, solution := range possibleSolutions {
+			allSolutions += string(solution) + " "
+		}
+		if solutionAnswers, ok := sortedSolutions[allSolutions]; ok {
+			newSolutionAnswers := sortedSolutions[allSolutions]
+			newSolutionAnswers.Solutions = append(solutionAnswers.Solutions, string(solution))
+			if solutionAnswers.AnswerColors[0] != string(answer.Colors) {
+				newSolutionAnswers.AnswerColors = append(solutionAnswers.AnswerColors, "BUG-"+string(solution)+"-"+string(answer.Colors))
+			}
+			sortedSolutions[allSolutions] = newSolutionAnswers
+		} else {
+			sortedSolutions[allSolutions] = SolutionsAnswers{Solutions: []string{string(solution)}, AnswerColors: []string{string(answer.Colors)}}
+		}
+	}
+	return sortedSolutions
+}
+
+// for the given guess return a map key = answer colors value = matching solutions
+func UniqueAnswerResults(wordListStrings []string, guess string) map[string][]string {
+	wordList := StringsToWordleWords(wordListStrings)
+	guessWW := []rune(guess)
+	answerSolutions := make(map[string][]string)
+	for _, solutionWW := range wordList {
+		answer := WordleAnswer2(solutionWW, guessWW)
+		answerColors := string(answer.Colors)
+		if answers, ok := answerSolutions[string(answerColors)]; ok {
+			answerSolutions[answerColors] = append(answers, string(solutionWW))
+		} else {
+			answerSolutions[answerColors] = []string{string(solutionWW)}
+		}
+	}
+	return answerSolutions
 }

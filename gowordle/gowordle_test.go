@@ -32,10 +32,10 @@ func TestMatching1(t *testing.T) {
 	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
 	wds := NewWordleMatcher(words)
 	assert := assert.New(t)
-	matching := wds.matching(WW("aazzz"), WW("ggrrr"))
+	matching := wds.Matching(WW("aazzz"), WW("ggrrr"))
 	assert.Equal(matching, StringsToWordleWords([]string{"aaaaa"}))
 
-	matching = wds.matching(WW("bzzzz"), WW("yrrrr"))
+	matching = wds.Matching(WW("bzzzz"), WW("yrrrr"))
 	assert.Equal(matching, StringsToWordleWords([]string{"abbbb"}))
 }
 
@@ -43,7 +43,7 @@ func TestMatching2(t *testing.T) {
 	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
 	wds := NewWordleMatcher(words)
 	assert := assert.New(t)
-	matching := wds.matching(WW("bzzzz"), WW("yrrrr"))
+	matching := wds.Matching(WW("bzzzz"), WW("yrrrr"))
 	assert.Equal(matching, StringsToWordleWords([]string{"abbbb"}))
 }
 
@@ -59,7 +59,7 @@ func WordSort(ws []WordleWord) []string {
 func testMatching(t *testing.T, words []string, guess string, answer string, expected []string) {
 	wwords := StringsToWordleWords(words)
 	wds := NewWordleMatcher(wwords)
-	matching := wds.matching(WW(guess), WW(answer))
+	matching := wds.Matching(WW(guess), WW(answer))
 	assert := assert.New(t)
 	sort.Strings(expected)
 	matching_s := WordSort(matching)
