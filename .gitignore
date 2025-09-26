@@ -1,3 +1,5 @@
+# executables
+*.test
 *.prof
 main
 

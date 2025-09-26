@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"context"
 	"fmt"
 	"log"
@@ -16,16 +17,17 @@ func server(globalConfig GlobalConfiguration, solution string, guesses []string)
 	wordList := globalConfig.AllWords
 	wws := gowordle.StringsToWordleWords(wordList)
 	fmt.Print(solution, " ")
-	solutionWW := []rune(solution)
+	solutionWW := gowordle.WordleWord([]rune(solution))
 	for _, guess := range guesses {
 		game := gowordle.NewWordleMatcher(wws)
-		guessWW := []rune(guess)
+		guessWW := gowordle.WordleWord([]rune(guess))
 		answer := gowordle.WordleAnswer2(solutionWW, guessWW)
 		wws = game.Matching2(answer)
-		fmt.Println(guess, string(answer.Colors), gowordle.WordleWordsToStrings(wws))
+		fmt.Println(guess, string(answer.Colors[:]), gowordle.WordleWordsToStrings(wws))
 	}
 }
 
+/**
 func FirstWords(globalConfig GlobalConfiguration) {
 	wordList := globalConfig.AllWords
 	results := gowordle.UniqueGuessResults(wordList, globalConfig.FirstWord)
@@ -33,6 +35,7 @@ func FirstWords(globalConfig GlobalConfiguration) {
 		fmt.Println(len(unique)/6, unique, solutionAnswers.AnswerColors, solutionAnswers.Solutions)
 	}
 }
+	**/
 
 func FirstWordsByAnswerColor(globalConfig GlobalConfiguration) {
 	wordList := globalConfig.AllWords
@@ -49,20 +52,13 @@ func FirstWordsByAnswerColor(globalConfig GlobalConfiguration) {
 	}
 }
 
-func FirstWords1(globalConfig GlobalConfiguration) {
+func FirstWords(globalConfig GlobalConfiguration) {
 	wordList := globalConfig.AllWords
 	wws := gowordle.StringsToWordleWords(wordList)
 	ret := gowordle.ScoreAlgorithmTotalMatches1LevelAll(wws, wws, wws, 0, len(wordList))
-	for keyCount, key := range ret.Keys() {
-		values, _ := ret.Get(key)
-		fmt.Print(key, " ")
-		for _, value := range values {
-			fmt.Print(string(value), " ")
-		}
-		fmt.Println()
-		if keyCount > 10 {
-			break
-		}
+	for ret.Len() > 0 {
+		item := heap.Pop(ret).(gowordle.Item)
+		fmt.Println(item.Score, string(item.Value[:]))
 	}
 }
 
@@ -84,14 +80,21 @@ func simulate(globalConfig GlobalConfiguration, answers []string) {
 		bar = progressbar.DefaultSilent(int64(len(answers)))
 	}
 
-	for _, answer := range answers {
+	for answerCount, answer := range answers {
 		bar.Add(1)
 		guesses := gowordle.Simulate(wordList, answer, globalConfig.FirstWord)
+		fmt.Print(answerCount, len(answers), " ", answer, ":")
+		for _, guess := range guesses {
+			fmt.Print(" ", guess)
+		}
+		fmt.Println()
+
 		if _, ok := sortedGames[len(guesses)]; !ok {
 			sortedGames[len(guesses)] = make([]Game, 0)
 		}
 		sortedGames[len(guesses)] = append(sortedGames[len(guesses)], Game{answer, guesses})
 	}
+	fmt.Println("---------------------")
 
 	// create slice of number of guesses
 	keys := make([]int, 0, len(sortedGames))
@@ -122,14 +125,38 @@ func playWordle(globalConfig GlobalConfiguration, answers []string) {
 	for i := 0; i < len(answers); i += 2 {
 		guess := answers[i]
 		answer := answers[i+1]
-		gas = append(gas, gowordle.GuessAnswer{Guess: gowordle.WordleWord(guess), Answer: gowordle.WordleWord(answer)})
+		gas = append(gas, gowordle.GuessAnswer{Guess: gowordle.WordleWord([]rune(guess)), Answer: gowordle.WordleWord([]rune(answer))})
 	}
 	nextGuess, possible := gowordle.PlayWorldReturnPossible(wordList, gas)
-	fmt.Print(string(nextGuess), ":")
+	fmt.Print(string(nextGuess[:]), ":")
 	for _, word := range possible {
-		fmt.Print(" ", string(word))
+		fmt.Print(" ", string(word[:]))
 	}
 	fmt.Println()
+}
+
+type AnswerWords struct {
+	Answer   gowordle.Answer
+	matching []gowordle.WordleWord
+}
+type GuessSolution struct {
+	Guess    gowordle.WordleWord
+	Solution gowordle.WordleWord
+}
+
+func cache(globalConfig GlobalConfiguration) {
+	wordList := gowordle.StringsToWordleWords(globalConfig.AllWords)
+	game := gowordle.NewWordleMatcher(wordList)
+	result := make(map[GuessSolution]AnswerWords)
+	for _, guess := range wordList {
+		for _, solution := range wordList {
+			answer := gowordle.WordleAnswer2(solution, guess)
+			matching := game.Matching2(answer)
+			answerWords := AnswerWords{answer, matching}
+			result[GuessSolution{guess, solution}] = answerWords
+		}
+	}
+	fmt.Println("Done")
 }
 
 type GlobalConfiguration struct {
@@ -141,7 +168,7 @@ type GlobalConfiguration struct {
 
 func globalCofiguration(count int, recursive bool, progress bool, firstWord string) GlobalConfiguration {
 	if count == 0 {
-		count = len(gowordle.WordleDictionary)
+		count = len(gowordle.SortedWordleDictionary())
 	}
 	gowordle.RECURSIVE = recursive
 	if recursive {
@@ -151,12 +178,11 @@ func globalCofiguration(count int, recursive bool, progress bool, firstWord stri
 		firstWord = "raise"
 	}
 	return GlobalConfiguration{
-		AllWords:  gowordle.WordleDictionary[0:count],
+		AllWords:  gowordle.SortedWordleDictionary()[0:count],
 		Recursive: recursive,
 		progress:  progress,
 		FirstWord: firstWord,
 	}
-
 }
 
 func main() {
@@ -168,7 +194,7 @@ func main() {
 	//server(globalCofiguration(count, recursive, progress, firstWord), "going", []string{"raise", "blunt"})
 	// FirstWords(globalCofiguration(count, recursive, progress, firstWord))
 	// playWordle(globalCofiguration(count, true, progress, firstWord), []string{"raise", "ryyry"})
-	simulate(globalCofiguration(count, true, progress, firstWord), []string{})
+	// simulate(globalCofiguration(count, true, progress, firstWord), []string{})
 	cmd := &cli.Command{
 		Name:  "wdl",
 		Usage: "wordle",
@@ -275,6 +301,14 @@ func main() {
 				Usage: "measure the performance of an algorithm by playing against a set of answers",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					playWordle(globalCofiguration(count, recursive, progress, firstWord), cmd.Args().Slice())
+					return nil
+				},
+			},
+			{
+				Name:  "cache",
+				Usage: "build a cache[guess][solution] = Answer",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					cache(globalCofiguration(count, recursive, progress, firstWord))
 					return nil
 				},
 			},

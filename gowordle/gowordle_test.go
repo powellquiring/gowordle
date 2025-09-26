@@ -26,7 +26,7 @@ func TestBest(t *testing.T) {
 }
 
 func WW(ins string) WordleWord {
-	return []rune(ins)
+	return WordleWord([]rune(ins))
 }
 func TestMatching1(t *testing.T) {
 	words := StringsToWordleWords([]string{"aaaaa", "abbbb"})
@@ -50,7 +50,7 @@ func TestMatching2(t *testing.T) {
 func WordSort(ws []WordleWord) []string {
 	s := make([]string, len(ws))
 	for i, w := range ws {
-		s[i] = string(w)
+		s[i] = string(w[:])
 	}
 	sort.Strings(s)
 	return s
@@ -113,8 +113,13 @@ func TestFirst20(t *testing.T) {
 	assert.Greater(float32(5.0), float32(len(simulateWords)))
 }
 
+func TestSimple(t *testing.T) {
+	possibleWords := StringsToWordleWords([]string{"clack", "clamp", "clank", "cloak", "local", "octal", "vocal"})
+	wordList := append(StringsToWordleWords([]string{"thank"}), possibleWords...)
+	ScoreAlgorithmTotalMatches1LevelAll(wordList, possibleWords, possibleWords, 1, 1000)
+}
 func TestFirst(t *testing.T) {
-	wordList := WordleDictionary[0:100]
+	wordList := SortedWordleDictionary()[0:100]
 	// wordList := wordleDictionary
 	FirstGuess1(wordList)
 }
@@ -279,10 +284,11 @@ func PrintBetterGuesses() {
 func TestPlayArise(t *testing.T) {
 	wordList := StringsToWordleWords(WordleDictionary[0:])
 	guessAnswers := []GuessAnswer{
-		{[]rune("arise"), []rune("yrrry")},
-		{[]rune("metal"), []rune("rgggg")},
+		{WordleWord([]rune("arise")), WordleWord([]rune("yrrry"))},
+		{WordleWord([]rune("metal")), WordleWord([]rune("rgggg"))},
 	}
-	print(string(PlayWordle(wordList, guessAnswers)))
+	ww := PlayWordle(wordList, guessAnswers)
+	println(string(ww[:]))
 	print("done")
 }
 func TestDifficult(t *testing.T) {
@@ -333,21 +339,25 @@ var topGuesses = []string{
 }
 
 func BenchmarkFirst1(t *testing.B) {
-	// wordList := WordleDictionary[0:1200]
-	// wordList := WordleDictionary[0:200]
-	wordList := WordleDictionary
-	// wordList := WordleDictionary[0:800]
-	score, words := FirstGuessProvideInitialGuesses1(topGuesses, wordList)
-	println(score)
-	PrintWords(words)
-	println("hits:", HitCount)
-	println("miss:", MissCount)
+	BestGuess1 = ScoreAlgorithmRecursive
+	// wordList := SortedWordleDictionary()[0:800]
+	wordList := SortedWordleDictionary()[:]
+	var topGuesses = []string{
+		"atone", // 20
+		"raise", // 0
+		"arise", // 1
+	}
+	FirstGuessProvideInitialGuesses1(topGuesses, wordList)
+	// println(score)
+	// PrintWords(words)
+	// println("hits:", HitCount)
+	// println("miss:", MissCount)
 }
 
 var HitmissMap map[string]*Answer = make(map[string]*Answer, 10000)
 
 func testMap(solution, guess WordleWord) *Answer {
-	key := string(solution) + string(guess)
+	key := string(solution[:]) + string(guess[:])
 	if ret, ok := HitmissMap[key]; ok {
 		HitCount++
 		return ret
@@ -421,4 +431,14 @@ func BenchmarkMapIndex(t *testing.B) {
 	}
 	println("hits:", HitCount)
 	println("miss:", MissCount)
+}
+
+func BenchmarkSimulate(t *testing.B) {
+	BestGuess1 = ScoreAlgorithmRecursive
+	// wordList := SortedWordleDictionary()[0:800]
+	wordList := SortedWordleDictionary()
+	for _, answer := range wordList[0:3] {
+		guesses := Simulate(wordList, answer, "raise")
+		println(answer, guesses)
+	}
 }
